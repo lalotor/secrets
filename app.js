@@ -3,7 +3,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
+const md5 = require("md5");
 
 const app = express();
 
@@ -26,11 +26,6 @@ const connectDB = async () => {
 const userSchema = new mongoose.Schema({
   email: String,
   password: String
-});
-
-userSchema.plugin(encrypt, { 
-  secret: process.env.ENCRYPTION_STRING, 
-  encryptedFields: ['password'] 
 });
 
 const User = mongoose.model("User", userSchema);
@@ -59,7 +54,7 @@ app.post("/register", async (req, res) => {
   }
   const user = new User({
     email: req.body.username,
-    password: req.body.password
+    password: md5(req.body.password)
   });
 
   const newUser = await user.save();
@@ -72,7 +67,7 @@ app.post("/register", async (req, res) => {
 
 app.post("/login", async (req, res) => {
   const foundUser = await findUserByEmail(req.body.username);
-  if (foundUser && foundUser.password === req.body.password) {
+  if (foundUser && foundUser.password === md5(req.body.password)) {
     res.render("secrets");
   } else {
     console.log("User '" + req.body.username + "' not found or invalid password");
