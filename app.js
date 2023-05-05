@@ -1,9 +1,10 @@
 require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
-const ejs = require("ejs");
 const mongoose = require("mongoose");
-const md5 = require("md5");
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
+
 
 const app = express();
 
@@ -47,30 +48,38 @@ app.get("/register", async (req, res) => {
 });
 
 app.post("/register", async (req, res) => {
-  const foundUser = await findUserByEmail(req.body.username);
-  if (foundUser) {
-    console.log("User '" + req.body.username + "' already exists");
-    return;
-  }
-  const user = new User({
-    email: req.body.username,
-    password: md5(req.body.password)
+  bcrypt.hash(req.body.password, saltRounds, async (err, hash) => {
+    const foundUser = await findUserByEmail(req.body.username);
+    if (foundUser) {
+      console.log("User '" + req.body.username + "' already exists");
+      return;
+    }
+    const user = new User({
+      email: req.body.username,
+      password: hash
+    });
+  
+    const newUser = await user.save();
+    if (newUser === user) {
+      res.render("secrets");
+    } else {
+      console.log("Unexpected error");
+    }
   });
-
-  const newUser = await user.save();
-  if (newUser === user) {
-    res.render("secrets");
-  } else {
-    console.log("Unexpected error");
-  }
 });
 
 app.post("/login", async (req, res) => {
   const foundUser = await findUserByEmail(req.body.username);
-  if (foundUser && foundUser.password === md5(req.body.password)) {
-    res.render("secrets");
+  if (foundUser) {
+    bcrypt.compare(req.body.password, foundUser.password, async(err, result) => {
+      if (result) {
+        res.render("secrets");
+      } else {
+        console.log("User '" + req.body.username + "' password does not match");
+      }
+    });
   } else {
-    console.log("User '" + req.body.username + "' not found or invalid password");
+    console.log("User '" + req.body.username + "' not found");
   }
 });
 
