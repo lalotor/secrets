@@ -2,9 +2,9 @@ require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt");
-const saltRounds = 10;
-
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
 
 const app = express();
 
@@ -13,6 +13,13 @@ app.set('view engine', 'ejs');
 app.use(bodyParser.urlencoded({ 
   extended: true 
 }));
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: true
+}));
+app.use(passport.initialize());
+app.use(passport.session());
 
 const connectDB = async () => {
   try {
@@ -29,7 +36,13 @@ const userSchema = new mongoose.Schema({
   password: String
 });
 
+userSchema.plugin(passportLocalMongoose);
+
 const User = mongoose.model("User", userSchema);
+
+passport.use(User.createStrategy());
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 function findUserByEmail(email) {
   return User.findOne({ email: email });
@@ -47,40 +60,52 @@ app.get("/register", async (req, res) => {
   res.render("register");
 });
 
-app.post("/register", async (req, res) => {
-  bcrypt.hash(req.body.password, saltRounds, async (err, hash) => {
-    const foundUser = await findUserByEmail(req.body.username);
-    if (foundUser) {
-      console.log("User '" + req.body.username + "' already exists");
-      return;
-    }
-    const user = new User({
-      email: req.body.username,
-      password: hash
-    });
-  
-    const newUser = await user.save();
-    if (newUser === user) {
-      res.render("secrets");
+app.get("/secrets", async (req, res) => {
+  if (req.isAuthenticated()) {
+    res.render("secrets");
+  } else {
+    res.redirect("/login");
+  }
+});
+
+app.get("/logout", async (req, res) => {
+  req.logout(function(err) {
+    if (err) { 
+      console.log(err);
     } else {
-      console.log("Unexpected error");
+      res.redirect("/");
+    }
+  });
+});
+
+app.post("/register", async (req, res) => {
+  User.register({username: req.body.username}, req.body.password, function(err, user) {
+    if (err) { 
+      console.log(err);
+      res.redirect("/register");
+    } else {
+      passport.authenticate("local")(req, res, function() {
+        res.redirect("/secrets");
+      })
     }
   });
 });
 
 app.post("/login", async (req, res) => {
-  const foundUser = await findUserByEmail(req.body.username);
-  if (foundUser) {
-    bcrypt.compare(req.body.password, foundUser.password, async(err, result) => {
-      if (result) {
-        res.render("secrets");
-      } else {
-        console.log("User '" + req.body.username + "' password does not match");
-      }
-    });
-  } else {
-    console.log("User '" + req.body.username + "' not found");
-  }
+  const user = new User({
+    username: req.body.username,
+    password: req.body.password
+  });
+
+  req.login(user, function(err) {
+    if (err) { 
+      console.log(err);
+    } else {
+      passport.authenticate("local")(req, res, function() {
+        res.redirect("/secrets");
+      })
+    }
+  })
 });
 
 connectDB().then(() => {
