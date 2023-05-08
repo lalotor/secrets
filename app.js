@@ -38,8 +38,17 @@ const userSchema = new mongoose.Schema({
   email: String,
   password: String,
   googleId: String,
-  facebookId: String
+  facebookId: String,
+  secret: String
 });
+
+function findUserByEmail(email) {
+  return User.findOne({ email: email });
+}
+
+function findAllUserWithSecrets() {
+  return User.find({ "secret": { $ne: null } });
+}
 
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
@@ -86,10 +95,6 @@ passport.use(new FacebookStrategy({
   }
 ));
 
-function findUserByEmail(email) {
-  return User.findOne({ email: email });
-}
-
 app.get("/", async (req, res) => {
   res.render("home");
 });
@@ -101,7 +106,7 @@ app.get("/oauth/google/secrets",
   passport.authenticate("google", { failureRedirect: "/login" }),
   function (req, res) {
     // Successful authentication, redirect home.
-    res.render("secrets");
+    res.redirect("/secrets");
   });
 
 app.get('/auth/facebook',
@@ -111,24 +116,76 @@ app.get('/auth/facebook/callback',
   passport.authenticate('facebook', { failureRedirect: '/login' }),
   function (req, res) {
     // Successful authentication, redirect home.
-    res.render("secrets");
+    res.redirect("/secrets");
   });
 
-app.get("/login", async (req, res) => {
-  res.render("login");
-});
+app.route("/login")
+  .get(async (req, res) => {
+    res.render("login");
+  })
+  .post(async (req, res) => {
+    const user = new User({
+      username: req.body.username,
+      password: req.body.password
+    });
 
-app.get("/register", async (req, res) => {
-  res.render("register");
-});
+    req.login(user, function (err) {
+      if (err) {
+        console.log(err);
+      } else {
+        passport.authenticate("local")(req, res, function () {
+          res.redirect("/secrets");
+        })
+      }
+    })
+  });
+
+app.route("/register")
+  .get(async (req, res) => {
+    res.render("register");
+  })
+  .post(async (req, res) => {
+    User.register({ username: req.body.username }, req.body.password, function (err, user) {
+      if (err) {
+        console.log(err);
+        res.redirect("/register");
+      } else {
+        passport.authenticate("local")(req, res, function () {
+          res.redirect("/secrets");
+        })
+      }
+    });
+  });
 
 app.get("/secrets", async (req, res) => {
-  if (req.isAuthenticated()) {
-    res.render("secrets");
-  } else {
-    res.redirect("/login");
-  }
+  findAllUserWithSecrets().then((userWithSecrets) => {
+    res.render("secrets", { userWithSecrets: userWithSecrets });
+  }).catch((err) => {
+    console.log(err);
+  });
 });
+
+app.route("/submit")
+  .get(async (req, res) => {
+    if (req.isAuthenticated()) {
+      res.render("submit");
+    } else {
+      res.redirect("/login");
+    }
+  })
+  .post(async (req, res) => {
+    const submittedSecret = req.body.secret;
+    const foundUser = await User.findById(req.user.id);
+    if (foundUser) {
+      foundUser.secret = submittedSecret;
+      const updatedUser = await foundUser.save();
+      if (updatedUser === foundUser) {
+        res.redirect("/secrets")
+      } else {
+        console.log("User update was not possible");
+      }
+    }
+  });
 
 app.get("/logout", async (req, res) => {
   req.logout(function (err) {
@@ -138,36 +195,6 @@ app.get("/logout", async (req, res) => {
       res.redirect("/");
     }
   });
-});
-
-app.post("/register", async (req, res) => {
-  User.register({ username: req.body.username }, req.body.password, function (err, user) {
-    if (err) {
-      console.log(err);
-      res.redirect("/register");
-    } else {
-      passport.authenticate("local")(req, res, function () {
-        res.redirect("/secrets");
-      })
-    }
-  });
-});
-
-app.post("/login", async (req, res) => {
-  const user = new User({
-    username: req.body.username,
-    password: req.body.password
-  });
-
-  req.login(user, function (err) {
-    if (err) {
-      console.log(err);
-    } else {
-      passport.authenticate("local")(req, res, function () {
-        res.redirect("/secrets");
-      })
-    }
-  })
 });
 
 connectDB().then(() => {
